@@ -1,8 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const mongoose = require('mongoose');
 const path = require('path');
+const supabase = require('./config/supabase');
 
 // Inicialização do app
 const app = express();
@@ -11,13 +11,15 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Conexão com o MongoDB
-mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/barbearias-saas', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('MongoDB conectado'))
-.catch(err => console.error('Erro na conexão com MongoDB:', err));
+// Testar conexão com Supabase
+(async () => {
+  const { data, error } = await supabase.from('health_check').select('*').limit(1);
+  if (error) {
+    console.error('Erro na conexão com Supabase:', error);
+  } else {
+    console.log('Supabase conectado com sucesso');
+  }
+})();
 
 // Rotas
 app.use('/api/auth', require('./routes/auth'));
