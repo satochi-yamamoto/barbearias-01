@@ -11,30 +11,7 @@ const sendSMS = require('../utils/sendSMS');
 // @route   GET /api/notifications
 // @access  Private
 exports.getNotifications = asyncHandler(async (req, res, next) => {
-  const notifications = await Notification.find({ recipient: req.user.id })
-    .sort({ createdAt: -1 })
-    .populate({
-      path: 'relatedTo',
-      select: 'service date startTime barber client',
-      populate: [
-        {
-          path: 'service',
-          select: 'name'
-        },
-        {
-          path: 'barber',
-          select: 'user',
-          populate: {
-            path: 'user',
-            select: 'name'
-          }
-        },
-        {
-          path: 'client',
-          select: 'name'
-        }
-      ]
-    });
+  const notifications = await Notification.findByRecipientId(req.user.id);
   
   res.status(200).json({
     success: true,
@@ -53,8 +30,7 @@ exports.getNotification = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Notificação não encontrada com id ${req.params.id}`, 404));
   }
   
-  // Verificar propriedade
-  if (notification.recipient.toString() !== req.user.id) {
+  if (notification.recipient_id.toString() !== req.user.id) {
     return next(new ErrorResponse('Não autorizado a acessar esta notificação', 401));
   }
   
@@ -74,14 +50,11 @@ exports.markAsRead = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Notificação não encontrada com id ${req.params.id}`, 404));
   }
   
-  // Verificar propriedade
-  if (notification.recipient.toString() !== req.user.id) {
+  if (notification.recipient_id.toString() !== req.user.id) {
     return next(new ErrorResponse('Não autorizado a modificar esta notificação', 401));
   }
   
-  notification.isRead = true;
-  notification.status = 'read';
-  await notification.save();
+  notification = await Notification.markAsRead(req.params.id);
   
   res.status(200).json({
     success: true,
@@ -99,12 +72,11 @@ exports.deleteNotification = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Notificação não encontrada com id ${req.params.id}`, 404));
   }
   
-  // Verificar propriedade
-  if (notification.recipient.toString() !== req.user.id) {
+  if (notification.recipient_id.toString() !== req.user.id) {
     return next(new ErrorResponse('Não autorizado a excluir esta notificação', 401));
   }
   
-  await notification.remove();
+  await Notification.delete(req.params.id);
   
   res.status(200).json({
     success: true,
@@ -116,28 +88,16 @@ exports.deleteNotification = asyncHandler(async (req, res, next) => {
 // @route   POST /api/notifications/send/appointment-reminder/:appointmentId
 // @access  Private (Admin, Barbeiro)
 exports.sendAppointmentReminder = asyncHandler(async (req, res, next) => {
-  const appointment = await Appointment.findById(req.params.appointmentId)
-    .populate('client', 'name email phone')
-    .populate({
-      path: 'barber',
-      populate: {
-        path: 'user',
-        select: 'name'
-      }
-    })
-    .populate('service', 'name')
-    .populate('barbershop', 'name address');
+  const appointment = await Appointment.findById(req.params.appointmentId);
   
   if (!appointment) {
     return next(new ErrorResponse(`Agendamento não encontrado com id ${req.params.appointmentId}`, 404));
   }
   
-  // Verificar se o agendamento está ativo
   if (appointment.status === 'cancelado') {
     return next(new ErrorResponse('Não é possível enviar lembrete para um agendamento cancelado', 400));
   }
   
-  // Formatar a data para exibição
   const options = { 
     weekday: 'long', 
     year: 'numeric', 
@@ -146,11 +106,10 @@ exports.sendAppointmentReminder = asyncHandler(async (req, res, next) => {
   };
   const formattedDate = new Date(appointment.date).toLocaleDateString('pt-BR', options);
   
-  // Preparar mensagem
   const emailMessage = `
     Olá ${appointment.client.name},
     
-    Este é um lembrete do seu agendamento na ${appointment.barbershop.name} para amanhã, ${formattedDate}, às ${appointment.startTime}.
+    Este é um lembrete do seu agendamento na ${appointment.barbershop.name} para amanhã, ${formattedDate}, às ${appointment.start_time}.
     
     Detalhes do agendamento:
     - Serviço: ${appointment.service.name}
@@ -163,37 +122,31 @@ exports.sendAppointmentReminder = asyncHandler(async (req, res, next) => {
     Equipe ${appointment.barbershop.name}
   `;
   
-  const smsMessage = `Lembrete: Você tem um agendamento amanhã às ${appointment.startTime} na ${appointment.barbershop.name} com ${appointment.barber.user.name}.`;
+  const smsMessage = `Lembrete: Você tem um agendamento amanhã às ${appointment.start_time} na ${appointment.barbershop.name} com ${appointment.barber.user.name}.`;
   
-  // Enviar notificações
   try {
-    // Email
     await sendEmail({
       email: appointment.client.email,
       subject: `Lembrete de Agendamento - ${appointment.barbershop.name}`,
       message: emailMessage
     });
     
-    // SMS
     await sendSMS({
       phone: appointment.client.phone,
       message: smsMessage
     });
     
-    // Registrar notificação no sistema
     await Notification.create({
-      recipient: appointment.client._id,
+      recipient_id: appointment.client_id,
       type: 'appointment_reminder',
       title: 'Lembrete de Agendamento',
-      message: `Você tem um agendamento amanhã às ${appointment.startTime}.`,
-      relatedTo: appointment._id,
-      onModel: 'Appointment',
+      message: `Você tem um agendamento amanhã às ${appointment.start_time}.`,
+      related_to: appointment.id,
+      on_model: 'Appointment',
       channel: 'email'
     });
     
-    // Atualizar status de notificação no agendamento
-    appointment.notificationsStatus.reminderSent = true;
-    await appointment.save();
+    await Appointment.update(appointment.id, { notifications_status: { reminder_sent: true } });
     
     res.status(200).json({
       success: true,
@@ -208,31 +161,21 @@ exports.sendAppointmentReminder = asyncHandler(async (req, res, next) => {
 // @route   POST /api/notifications/send/appointment-confirmation/:appointmentId
 // @access  Private (Admin, Barbeiro)
 exports.sendAppointmentConfirmation = asyncHandler(async (req, res, next) => {
-  const appointment = await Appointment.findById(req.params.appointmentId)
-    .populate('client', 'name email phone')
-    .populate({
-      path: 'barber',
-      populate: {
-        path: 'user',
-        select: 'name'
-      }
-    })
-    .populate('service', 'name')
-    .populate('barbershop', 'name address');
+  const appointment = await Appointment.findById(req.params.appointmentId);
   
   if (!appointment) {
     return next(new ErrorResponse(`Agendamento não encontrado com id ${req.params.appointmentId}`, 404));
   }
   
-  // Verificar se o agendamento está ativo
   if (appointment.status === 'cancelado') {
     return next(new ErrorResponse('Não é possível enviar confirmação para um agendamento cancelado', 400));
   }
   
-  // Atualizar status do agendamento
-  appointment.status = 'confirmado';
+  const updatedAppointment = await Appointment.update(req.params.appointmentId, { 
+    status: 'confirmado', 
+    notifications_status: { confirmation_sent: true } 
+  });
   
-  // Formatar a data para exibição
   const options = { 
     weekday: 'long', 
     year: 'numeric', 
@@ -241,11 +184,10 @@ exports.sendAppointmentConfirmation = asyncHandler(async (req, res, next) => {
   };
   const formattedDate = new Date(appointment.date).toLocaleDateString('pt-BR', options);
   
-  // Preparar mensagem
   const emailMessage = `
     Olá ${appointment.client.name},
     
-    Seu agendamento na ${appointment.barbershop.name} foi confirmado para ${formattedDate}, às ${appointment.startTime}.
+    Seu agendamento na ${appointment.barbershop.name} foi confirmado para ${formattedDate}, às ${appointment.start_time}.
     
     Detalhes do agendamento:
     - Serviço: ${appointment.service.name}
@@ -258,42 +200,34 @@ exports.sendAppointmentConfirmation = asyncHandler(async (req, res, next) => {
     Equipe ${appointment.barbershop.name}
   `;
   
-  const smsMessage = `Seu agendamento para ${appointment.startTime} na ${appointment.barbershop.name} com ${appointment.barber.user.name} foi confirmado.`;
+  const smsMessage = `Seu agendamento para ${appointment.start_time} na ${appointment.barbershop.name} com ${appointment.barber.user.name} foi confirmado.`;
   
-  // Enviar notificações
   try {
-    // Email
     await sendEmail({
       email: appointment.client.email,
       subject: `Agendamento Confirmado - ${appointment.barbershop.name}`,
       message: emailMessage
     });
     
-    // SMS
     await sendSMS({
       phone: appointment.client.phone,
       message: smsMessage
     });
     
-    // Registrar notificação no sistema
     await Notification.create({
-      recipient: appointment.client._id,
+      recipient_id: appointment.client_id,
       type: 'appointment_confirmation',
       title: 'Agendamento Confirmado',
-      message: `Seu agendamento para ${formattedDate} às ${appointment.startTime} foi confirmado.`,
-      relatedTo: appointment._id,
-      onModel: 'Appointment',
+      message: `Seu agendamento para ${formattedDate} às ${appointment.start_time} foi confirmado.`,
+      related_to: appointment.id,
+      on_model: 'Appointment',
       channel: 'email'
     });
-    
-    // Atualizar status de notificação no agendamento
-    appointment.notificationsStatus.confirmationSent = true;
-    await appointment.save();
     
     res.status(200).json({
       success: true,
       message: 'Confirmação enviada com sucesso',
-      data: appointment
+      data: updatedAppointment
     });
   } catch (err) {
     return next(new ErrorResponse('Erro ao enviar confirmação', 500));

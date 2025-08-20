@@ -1,7 +1,6 @@
-const jwt = require('jsonwebtoken');
 const asyncHandler = require('../utils/asyncHandler');
 const ErrorResponse = require('../utils/errorResponse');
-const User = require('../models/User');
+const supabase = require('../config/supabase');
 
 // Proteger rotas
 exports.protect = asyncHandler(async (req, res, next) => {
@@ -11,23 +10,23 @@ exports.protect = asyncHandler(async (req, res, next) => {
     req.headers.authorization &&
     req.headers.authorization.startsWith('Bearer')
   ) {
-    // Obter token do header Authorization
     token = req.headers.authorization.split(' ')[1];
   } else if (req.cookies && req.cookies.token) {
-    // Obter token do cookie
     token = req.cookies.token;
   }
 
-  // Verificar se o token existe
   if (!token) {
     return next(new ErrorResponse('Não autorizado para acessar esta rota', 401));
   }
 
   try {
-    // Verificar token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const { data: { user }, error } = await supabase.auth.getUser(token);
 
-    req.user = await User.findById(decoded.id);
+    if (error) {
+      return next(new ErrorResponse('Não autorizado para acessar esta rota', 401));
+    }
+
+    req.user = user;
 
     next();
   } catch (err) {

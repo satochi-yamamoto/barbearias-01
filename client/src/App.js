@@ -56,21 +56,21 @@ function App() {
                   <Route path="/about" element={<About />} />
                   
                   {/* Rotas Privadas - Cliente */}
-                  <Route path="/dashboard" element={<PrivateRoute component={Dashboard} />} />
-                  <Route path="/appointments/new" element={<PrivateRoute component={AppointmentForm} />} />
-                  <Route path="/appointments/:id" element={<PrivateRoute component={AppointmentDetails} />} />
-                  <Route path="/profile" element={<PrivateRoute component={Profile} />} />
+                  <Route path="/dashboard" element={<PrivateRoute element={Dashboard} />} />
+                  <Route path="/appointments/new" element={<PrivateRoute element={AppointmentForm} />} />
+                  <Route path="/appointments/:id" element={<PrivateRoute element={AppointmentDetails} />} />
+                  <Route path="/profile" element={<PrivateRoute element={Profile} />} />
                   
                   {/* Rotas Privadas - Barbeiro */}
-                  <Route path="/barber/dashboard" element={<PrivateRoute component={BarberDashboard} role="barber" />} />
-                  <Route path="/barber/schedule" element={<PrivateRoute component={BarberSchedule} role="barber" />} />
-                  <Route path="/barber/profile" element={<PrivateRoute component={BarberProfile} role="barber" />} />
+                  <Route path="/barber/dashboard" element={<PrivateRoute element={BarberDashboard} role="barber" />} />
+                  <Route path="/barber/schedule" element={<PrivateRoute element={BarberSchedule} role="barber" />} />
+                  <Route path="/barber/profile" element={<PrivateRoute element={BarberProfile} role="barber" />} />
                   
                   {/* Rotas Privadas - Admin */}
-                  <Route path="/admin/dashboard" element={<PrivateRoute component={AdminDashboard} role="admin" />} />
-                  <Route path="/admin/barbershops" element={<PrivateRoute component={BarbershopManagement} role="admin" />} />
-                  <Route path="/admin/services" element={<PrivateRoute component={ServicesManagement} role="admin" />} />
-                  <Route path="/admin/users" element={<PrivateRoute component={UsersManagement} role="admin" />} />
+                  <Route path="/admin/dashboard" element={<PrivateRoute element={AdminDashboard} role="admin" />} />
+                  <Route path="/admin/barbershops" element={<PrivateRoute element={BarbershopManagement} role="admin" />} />
+                  <Route path="/admin/services" element={<PrivateRoute element={ServicesManagement} role="admin" />} />
+                  <Route path="/admin/users" element={<PrivateRoute element={UsersManagement} role="admin" />} />
                   
                   {/* Rota 404 */}
                   <Route path="*" element={<NotFound />} />

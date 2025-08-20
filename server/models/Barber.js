@@ -1,69 +1,35 @@
-const mongoose = require('mongoose');
+const supabase = require('../config/supabase');
 
-const BarberSchema = new mongoose.Schema({
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+const Barber = {
+  async create(barber) {
+    const { data, error } = await supabase.from('barbers').insert(barber).select();
+    if (error) throw error;
+    return data[0];
   },
-  barbershop: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Barbershop',
-    required: true
+
+  async findById(id) {
+    const { data, error } = await supabase.from('barbers').select('*, user:user_id(*), barbershop:barbershop_id(*)').eq('id', id);
+    if (error) throw error;
+    return data[0];
   },
-  specialties: [String],
-  workingHours: [
-    {
-      day: {
-        type: Number, // 0-6 (Domingo-Sábado)
-        required: true
-      },
-      start: {
-        type: String, // Formato: 'HH:MM'
-        required: true
-      },
-      end: {
-        type: String, // Formato: 'HH:MM'
-        required: true
-      },
-      isAvailable: {
-        type: Boolean,
-        default: true
-      }
-    }
-  ],
-  rating: {
-    type: Number,
-    min: 0,
-    max: 5,
-    default: 0
+
+  async findByBarbershopId(barbershopId) {
+    const { data, error } = await supabase.from('barbers').select('*, user:user_id(*), barbershop:barbershop_id(*)').eq('barbershop_id', barbershopId);
+    if (error) throw error;
+    return data;
   },
-  reviews: [
-    {
-      user: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
-      },
-      text: {
-        type: String,
-        required: true
-      },
-      rating: {
-        type: Number,
-        required: true,
-        min: 1,
-        max: 5
-      },
-      createdAt: {
-        type: Date,
-        default: Date.now
-      }
-    }
-  ],
-  isActive: {
-    type: Boolean,
-    default: true
+
+  async update(id, updates) {
+    const { data, error } = await supabase.from('barbers').update(updates).eq('id', id).select();
+    if (error) throw error;
+    return data[0];
+  },
+
+  async delete(id) {
+    const { data, error } = await supabase.from('barbers').delete().eq('id', id);
+    if (error) throw error;
+    return data;
   }
-});
+};
 
-module.exports = mongoose.model('Barber', BarberSchema);
+module.exports = Barber;

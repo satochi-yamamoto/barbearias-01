@@ -1,100 +1,35 @@
-const mongoose = require('mongoose');
+const supabase = require('../config/supabase');
 
-const BarbershopSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'Por favor, informe o nome da barbearia'],
-    trim: true
+const Barbershop = {
+  async create(barbershop) {
+    const { data, error } = await supabase.from('barbershops').insert(barbershop).select();
+    if (error) throw error;
+    return data[0];
   },
-  owner: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+
+  async findById(id) {
+    const { data, error } = await supabase.from('barbershops').select('*, owner:owner_id(*)').eq('id', id);
+    if (error) throw error;
+    return data[0];
   },
-  address: {
-    street: String,
-    number: String,
-    complement: String,
-    neighborhood: String,
-    city: String,
-    state: String,
-    zipcode: String
+
+  async findAll() {
+    const { data, error } = await supabase.from('barbershops').select('*, owner:owner_id(*)');
+    if (error) throw error;
+    return data;
   },
-  location: {
-    type: {
-      type: String,
-      enum: ['Point'],
-      default: 'Point'
-    },
-    coordinates: {
-      type: [Number],
-      index: '2dsphere'
-    }
+
+  async update(id, updates) {
+    const { data, error } = await supabase.from('barbershops').update(updates).eq('id', id).select();
+    if (error) throw error;
+    return data[0];
   },
-  phone: {
-    type: String,
-    required: [true, 'Por favor, informe um telefone de contato']
-  },
-  email: {
-    type: String,
-    match: [
-      /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
-      'Por favor, informe um email válido'
-    ]
-  },
-  logo: {
-    type: String,
-    default: 'default-logo.jpg'
-  },
-  photos: [String],
-  businessHours: [
-    {
-      day: {
-        type: Number, // 0-6 (Domingo-Sábado)
-        required: true
-      },
-      start: {
-        type: String, // Formato: 'HH:MM'
-        required: true
-      },
-      end: {
-        type: String, // Formato: 'HH:MM'
-        required: true
-      },
-      isOpen: {
-        type: Boolean,
-        default: true
-      }
-    }
-  ],
-  description: String,
-  rating: {
-    type: Number,
-    min: 0,
-    max: 5,
-    default: 0
-  },
-  subscriptionPlan: {
-    type: String,
-    enum: ['free', 'basic', 'premium'],
-    default: 'free'
-  },
-  subscriptionStatus: {
-    type: String,
-    enum: ['active', 'pending', 'cancelled'],
-    default: 'active'
-  },
-  subscriptionExpiration: {
-    type: Date
-  },
-  isActive: {
-    type: Boolean,
-    default: true
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
+
+  async delete(id) {
+    const { data, error } = await supabase.from('barbershops').delete().eq('id', id);
+    if (error) throw error;
+    return data;
   }
-});
+};
 
-module.exports = mongoose.model('Barbershop', BarbershopSchema);
+module.exports = Barbershop;

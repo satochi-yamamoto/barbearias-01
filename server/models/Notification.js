@@ -1,50 +1,23 @@
-const mongoose = require('mongoose');
+const supabase = require('../config/supabase');
 
-const NotificationSchema = new mongoose.Schema({
-  recipient: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+const Notification = {
+  async create(notification) {
+    const { data, error } = await supabase.from('notifications').insert(notification).select();
+    if (error) throw error;
+    return data[0];
   },
-  type: {
-    type: String,
-    enum: ['appointment_reminder', 'appointment_confirmation', 'appointment_cancelation', 'review_request', 'system_message'],
-    required: true
+
+  async findByRecipientId(recipientId) {
+    const { data, error } = await supabase.from('notifications').select('*').eq('recipient_id', recipientId);
+    if (error) throw error;
+    return data;
   },
-  title: {
-    type: String,
-    required: true
-  },
-  message: {
-    type: String,
-    required: true
-  },
-  relatedTo: {
-    type: mongoose.Schema.Types.ObjectId,
-    refPath: 'onModel'
-  },
-  onModel: {
-    type: String,
-    enum: ['Appointment', 'Barbershop', 'Service']
-  },
-  status: {
-    type: String,
-    enum: ['sent', 'delivered', 'read', 'failed'],
-    default: 'sent'
-  },
-  channel: {
-    type: String,
-    enum: ['email', 'sms', 'push', 'in_app'],
-    required: true
-  },
-  isRead: {
-    type: Boolean,
-    default: false
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
+
+  async markAsRead(id) {
+    const { data, error } = await supabase.from('notifications').update({ is_read: true }).eq('id', id).select();
+    if (error) throw error;
+    return data[0];
   }
-});
+};
 
-module.exports = mongoose.model('Notification', NotificationSchema);
+module.exports = Notification;

@@ -1,64 +1,29 @@
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+const supabase = require('../config/supabase');
 
-const UserSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'Por favor, informe um nome'],
-    trim: true
+const User = {
+  async create(user) {
+    const { data, error } = await supabase.from('users').insert(user).select();
+    if (error) throw error;
+    return data[0];
   },
-  email: {
-    type: String,
-    required: [true, 'Por favor, informe um email'],
-    unique: true,
-    match: [
-      /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
-      'Por favor, informe um email válido'
-    ]
+
+  async findByEmail(email) {
+    const { data, error } = await supabase.from('users').select('*').eq('email', email);
+    if (error) throw error;
+    return data[0];
   },
-  phone: {
-    type: String,
-    required: [true, 'Por favor, informe um telefone'],
-    trim: true
+
+  async findById(id) {
+    const { data, error } = await supabase.from('users').select('*').eq('id', id);
+    if (error) throw error;
+    return data[0];
   },
-  password: {
-    type: String,
-    required: [true, 'Por favor, informe uma senha'],
-    minlength: 6,
-    select: false
-  },
-  role: {
-    type: String,
-    enum: ['client', 'barber', 'admin'],
-    default: 'client'
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
+
+  async findByIdAndUpdate(id, fieldsToUpdate) {
+    const { data, error } = await supabase.from('users').update(fieldsToUpdate).eq('id', id).select();
+    if (error) throw error;
+    return data[0];
   }
-});
-
-// Criptografar senha antes de salvar
-UserSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) {
-    next();
-  }
-
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-});
-
-// Método para gerar JWT
-UserSchema.methods.getSignedJwtToken = function() {
-  return jwt.sign({ id: this._id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE
-  });
 };
 
-// Método para comparar senha
-UserSchema.methods.matchPassword = async function(enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
-};
-
-module.exports = mongoose.model('User', UserSchema);
+module.exports = User;

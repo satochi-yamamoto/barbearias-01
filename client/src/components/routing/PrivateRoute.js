@@ -20,7 +20,7 @@ const PrivateRoute = ({ component: Component, role }) => {
   }
   
   // Se estiver autenticado e tiver o papel correto, renderizar o componente
-  return <Component />;
+  return <Element />;
 };
 
 export default PrivateRoute;

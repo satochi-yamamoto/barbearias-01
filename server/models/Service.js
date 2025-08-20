@@ -1,45 +1,35 @@
-const mongoose = require('mongoose');
+const supabase = require('../config/supabase');
 
-const ServiceSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'Por favor, informe o nome do serviço'],
-    trim: true
+const Service = {
+  async create(service) {
+    const { data, error } = await supabase.from('services').insert(service).select();
+    if (error) throw error;
+    return data[0];
   },
-  barbershop: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Barbershop',
-    required: true
+
+  async findById(id) {
+    const { data, error } = await supabase.from('services').select('*, barbershop:barbershop_id(*)').eq('id', id);
+    if (error) throw error;
+    return data[0];
   },
-  description: {
-    type: String,
-    required: [true, 'Por favor, informe uma descrição para o serviço']
+
+  async findByBarbershopId(barbershopId) {
+    const { data, error } = await supabase.from('services').select('*, barbershop:barbershop_id(*)').eq('barbershop_id', barbershopId);
+    if (error) throw error;
+    return data;
   },
-  price: {
-    type: Number,
-    required: [true, 'Por favor, informe o valor do serviço']
+
+  async update(id, updates) {
+    const { data, error } = await supabase.from('services').update(updates).eq('id', id).select();
+    if (error) throw error;
+    return data[0];
   },
-  duration: {
-    type: Number, // Duração em minutos
-    required: [true, 'Por favor, informe a duração do serviço']
-  },
-  category: {
-    type: String,
-    enum: ['corte', 'barba', 'combo', 'tratamento', 'outros'],
-    default: 'corte'
-  },
-  image: {
-    type: String,
-    default: 'default-service.jpg'
-  },
-  isActive: {
-    type: Boolean,
-    default: true
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
+
+  async delete(id) {
+    const { data, error } = await supabase.from('services').delete().eq('id', id);
+    if (error) throw error;
+    return data;
   }
-});
+};
 
-module.exports = mongoose.model('Service', ServiceSchema);
+module.exports = Service;

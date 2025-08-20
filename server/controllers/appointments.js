@@ -12,22 +12,19 @@ const sendSMS = require('../utils/sendSMS');
 // @route   POST /api/appointments
 // @access  Private (Cliente)
 exports.createAppointment = asyncHandler(async (req, res, next) => {
-  req.body.client = req.user.id;
+  req.body.client_id = req.user.id;
   
-  // Verificar se o serviço existe
-  const service = await Service.findById(req.body.service);
+  const service = await Service.findById(req.body.service_id);
   if (!service) {
-    return next(new ErrorResponse(`Serviço não encontrado com id ${req.body.service}`, 404));
+    return next(new ErrorResponse(`Serviço não encontrado com id ${req.body.service_id}`, 404));
   }
   
-  // Verificar se o barbeiro existe
-  const barber = await Barber.findById(req.body.barber);
+  const barber = await Barber.findById(req.body.barber_id);
   if (!barber) {
-    return next(new ErrorResponse(`Barbeiro não encontrado com id ${req.body.barber}`, 404));
+    return next(new ErrorResponse(`Barbeiro não encontrado com id ${req.body.barber_id}`, 404));
   }
   
-  // Calcular horário de término com base na duração do serviço
-  const startTime = req.body.startTime;
+  const startTime = req.body.start_time;
   const startHour = parseInt(startTime.split(':')[0]);
   const startMinute = parseInt(startTime.split(':')[1]);
   
@@ -38,51 +35,42 @@ exports.createAppointment = asyncHandler(async (req, res, next) => {
   
   const endTime = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`;
   
-  // Adicionar horário de término e preço total ao agendamento
-  req.body.endTime = endTime;
-  req.body.totalPrice = service.price;
+  req.body.end_time = endTime;
+  req.body.total_price = service.price;
   
-  // Verificar disponibilidade do horário
-  const overlappingAppointment = await Appointment.findOne({
-    barber: req.body.barber,
-    date: req.body.date,
-    status: { $nin: ['cancelado'] },
-    $or: [
-      {
-        startTime: { $lt: endTime },
-        endTime: { $gt: startTime }
-      },
-      {
-        startTime: startTime,
-        endTime: endTime
-      }
-    ]
-  });
-  
-  if (overlappingAppointment) {
+  const { data: overlappingAppointment, error } = await supabase
+    .from('appointments')
+    .select('*')
+    .eq('barber_id', req.body.barber_id)
+    .eq('date', req.body.date)
+    .neq('status', 'cancelado')
+    .or(`start_time.lt.${endTime},end_time.gt.${startTime}`);
+
+  if (error) {
+    return next(new ErrorResponse(error.message, 500));
+  }
+
+  if (overlappingAppointment && overlappingAppointment.length > 0) {
     return next(new ErrorResponse('Horário não disponível para este barbeiro', 400));
   }
   
-  // Criar o agendamento
   const appointment = await Appointment.create(req.body);
   
-  // Enviar notificação por email para o cliente
   const client = await User.findById(req.user.id);
   
   await sendEmail({
     email: client.email,
     subject: 'Agendamento Confirmado',
-    message: `Seu agendamento foi confirmado para ${req.body.date} às ${req.body.startTime}. Serviço: ${service.name}.`
+    message: `Seu agendamento foi confirmado para ${req.body.date} às ${req.body.start_time}. Serviço: ${service.name}.`
   });
   
-  // Registrar notificação no sistema
   await Notification.create({
-    recipient: req.user.id,
+    recipient_id: req.user.id,
     type: 'appointment_confirmation',
     title: 'Agendamento Confirmado',
-    message: `Seu agendamento foi confirmado para ${req.body.date} às ${req.body.startTime}. Serviço: ${service.name}.`,
-    relatedTo: appointment._id,
-    onModel: 'Appointment',
+    message: `Seu agendamento foi confirmado para ${req.body.date} às ${req.body.start_time}. Serviço: ${service.name}.`,
+    related_to: appointment.id,
+    on_model: 'Appointment',
     channel: 'email'
   });
   
@@ -98,35 +86,19 @@ exports.createAppointment = asyncHandler(async (req, res, next) => {
 exports.getAppointments = asyncHandler(async (req, res, next) => {
   let query;
   
-  // Se o usuário for cliente, mostrar apenas seus agendamentos
   if (req.user.role === 'client') {
-    query = Appointment.find({ client: req.user.id });
+    query = Appointment.findByClientId(req.user.id);
   } 
-  // Se for barbeiro, mostrar apenas seus agendamentos
   else if (req.user.role === 'barber') {
-    const barber = await Barber.findOne({ user: req.user.id });
+    const barber = await Barber.findOne({ user_id: req.user.id });
     if (!barber) {
       return next(new ErrorResponse('Perfil de barbeiro não encontrado', 404));
     }
-    query = Appointment.find({ barber: barber._id });
+    query = Appointment.findByBarberId(barber.id);
   } 
-  // Se for admin, mostrar todos os agendamentos
   else {
-    query = Appointment.find();
+    query = Appointment.findAll();
   }
-  
-  // Adicionar população
-  query = query
-    .populate('client', 'name email phone')
-    .populate({
-      path: 'barber',
-      populate: {
-        path: 'user',
-        select: 'name email'
-      }
-    })
-    .populate('service', 'name price duration')
-    .populate('barbershop', 'name address');
   
   const appointments = await query;
   
@@ -141,26 +113,15 @@ exports.getAppointments = asyncHandler(async (req, res, next) => {
 // @route   GET /api/appointments/:id
 // @access  Private
 exports.getAppointment = asyncHandler(async (req, res, next) => {
-  const appointment = await Appointment.findById(req.params.id)
-    .populate('client', 'name email phone')
-    .populate({
-      path: 'barber',
-      populate: {
-        path: 'user',
-        select: 'name email'
-      }
-    })
-    .populate('service', 'name price duration')
-    .populate('barbershop', 'name address');
+  const appointment = await Appointment.findById(req.params.id);
   
   if (!appointment) {
     return next(new ErrorResponse(`Agendamento não encontrado com id ${req.params.id}`, 404));
   }
   
-  // Verificar se o usuário tem permissão para ver este agendamento
   if (
-    req.user.role === 'client' && appointment.client._id.toString() !== req.user.id &&
-    req.user.role === 'barber' && appointment.barber.user._id.toString() !== req.user.id
+    req.user.role === 'client' && appointment.client_id.id.toString() !== req.user.id &&
+    req.user.role === 'barber' && appointment.barber_id.user_id.toString() !== req.user.id
   ) {
     return next(new ErrorResponse('Não autorizado a acessar este agendamento', 401));
   }
@@ -181,31 +142,27 @@ exports.updateAppointment = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Agendamento não encontrado com id ${req.params.id}`, 404));
   }
   
-  // Verificar propriedade
   if (
     req.user.role === 'client' && 
-    appointment.client.toString() !== req.user.id &&
+    appointment.client_id.toString() !== req.user.id &&
     req.user.role !== 'admin'
   ) {
     return next(new ErrorResponse('Não autorizado a atualizar este agendamento', 401));
   }
   
-  // Não permitir alterações em agendamentos concluídos ou cancelados
   if (appointment.status === 'concluído' || appointment.status === 'cancelado') {
     return next(new ErrorResponse('Não é possível modificar um agendamento concluído ou cancelado', 400));
   }
   
-  // Se a data ou hora estiver sendo alterada, verificar disponibilidade
-  if (req.body.date || req.body.startTime || req.body.barber) {
+  if (req.body.date || req.body.start_time || req.body.barber_id) {
     const date = req.body.date || appointment.date;
-    const startTime = req.body.startTime || appointment.startTime;
-    const barber = req.body.barber || appointment.barber;
+    const startTime = req.body.start_time || appointment.start_time;
+    const barberId = req.body.barber_id || appointment.barber_id;
     
-    // Se o serviço estiver sendo alterado, recalcular o horário de término
-    if (req.body.service) {
-      const service = await Service.findById(req.body.service);
+    if (req.body.service_id) {
+      const service = await Service.findById(req.body.service_id);
       if (!service) {
-        return next(new ErrorResponse(`Serviço não encontrado com id ${req.body.service}`, 404));
+        return next(new ErrorResponse(`Serviço não encontrado com id ${req.body.service_id}`, 404));
       }
       
       const startHour = parseInt(startTime.split(':')[0]);
@@ -216,57 +173,47 @@ exports.updateAppointment = asyncHandler(async (req, res, next) => {
       let endHour = startHour + Math.floor((startMinute + durationMinutes) / 60);
       let endMinute = (startMinute + durationMinutes) % 60;
       
-      req.body.endTime = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`;
-      req.body.totalPrice = service.price;
+      req.body.end_time = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`;
+      req.body.total_price = service.price;
     }
     
-    const endTime = req.body.endTime || appointment.endTime;
+    const endTime = req.body.end_time || appointment.end_time;
     
-    // Verificar disponibilidade do horário
-    const overlappingAppointment = await Appointment.findOne({
-      barber,
-      date,
-      _id: { $ne: req.params.id },
-      status: { $nin: ['cancelado'] },
-      $or: [
-        {
-          startTime: { $lt: endTime },
-          endTime: { $gt: startTime }
-        },
-        {
-          startTime: startTime,
-          endTime: endTime
-        }
-      ]
-    });
-    
-    if (overlappingAppointment) {
+    const { data: overlappingAppointment, error } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('barber_id', barberId)
+      .eq('date', date)
+      .neq('id', req.params.id)
+      .neq('status', 'cancelado')
+      .or(`start_time.lt.${endTime},end_time.gt.${startTime}`);
+
+    if (error) {
+      return next(new ErrorResponse(error.message, 500));
+    }
+
+    if (overlappingAppointment && overlappingAppointment.length > 0) {
       return next(new ErrorResponse('Horário não disponível para este barbeiro', 400));
     }
   }
   
-  appointment = await Appointment.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true
-  });
+  appointment = await Appointment.update(req.params.id, req.body);
   
-  // Enviar notificação sobre a atualização
-  const client = await User.findById(appointment.client);
+  const client = await User.findById(appointment.client_id);
   
   await sendEmail({
     email: client.email,
     subject: 'Agendamento Atualizado',
-    message: `Seu agendamento foi atualizado para ${appointment.date} às ${appointment.startTime}.`
+    message: `Seu agendamento foi atualizado para ${appointment.date} às ${appointment.start_time}.`
   });
   
-  // Registrar notificação no sistema
   await Notification.create({
-    recipient: appointment.client,
+    recipient_id: appointment.client_id,
     type: 'appointment_confirmation',
     title: 'Agendamento Atualizado',
-    message: `Seu agendamento foi atualizado para ${appointment.date} às ${appointment.startTime}.`,
-    relatedTo: appointment._id,
-    onModel: 'Appointment',
+    message: `Seu agendamento foi atualizado para ${appointment.date} às ${appointment.start_time}.`,
+    related_to: appointment.id,
+    on_model: 'Appointment',
     channel: 'email'
   });
   
@@ -286,16 +233,15 @@ exports.deleteAppointment = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Agendamento não encontrado com id ${req.params.id}`, 404));
   }
   
-  // Verificar propriedade
   if (
     req.user.role === 'client' && 
-    appointment.client.toString() !== req.user.id &&
+    appointment.client_id.toString() !== req.user.id &&
     req.user.role !== 'admin'
   ) {
     return next(new ErrorResponse('Não autorizado a excluir este agendamento', 401));
   }
   
-  await appointment.remove();
+  await Appointment.delete(req.params.id);
   
   res.status(200).json({
     success: true,
@@ -307,10 +253,7 @@ exports.deleteAppointment = asyncHandler(async (req, res, next) => {
 // @route   GET /api/appointments/barber/:barberId
 // @access  Private (Barbeiro, Admin)
 exports.getBarberAppointments = asyncHandler(async (req, res, next) => {
-  const appointments = await Appointment.find({ barber: req.params.barberId })
-    .populate('client', 'name email phone')
-    .populate('service', 'name price duration')
-    .populate('barbershop', 'name address');
+  const appointments = await Appointment.findByBarberId(req.params.barberId);
   
   res.status(200).json({
     success: true,
@@ -323,16 +266,14 @@ exports.getBarberAppointments = asyncHandler(async (req, res, next) => {
 // @route   GET /api/appointments/barbershop/:barbershopId
 // @access  Private (Admin)
 exports.getBarbershopAppointments = asyncHandler(async (req, res, next) => {
-  const appointments = await Appointment.find({ barbershop: req.params.barbershopId })
-    .populate('client', 'name email phone')
-    .populate({
-      path: 'barber',
-      populate: {
-        path: 'user',
-        select: 'name email'
-      }
-    })
-    .populate('service', 'name price duration');
+  const { data: appointments, error } = await supabase
+    .from('appointments')
+    .select('*, client:client_id(*), barber:barber_id(*), service:service_id(*)')
+    .eq('barbershop_id', req.params.barbershopId);
+
+  if (error) {
+    return next(new ErrorResponse(error.message, 500));
+  }
   
   res.status(200).json({
     success: true,
@@ -351,38 +292,34 @@ exports.confirmAppointment = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Agendamento não encontrado com id ${req.params.id}`, 404));
   }
   
-  appointment.status = 'confirmado';
-  await appointment.save();
+  const updatedAppointment = await Appointment.update(req.params.id, { status: 'confirmado' });
   
-  // Enviar notificação por email para o cliente
-  const client = await User.findById(appointment.client);
+  const client = await User.findById(appointment.client_id);
   
   await sendEmail({
     email: client.email,
     subject: 'Agendamento Confirmado pelo Barbeiro',
-    message: `Seu agendamento para ${appointment.date} às ${appointment.startTime} foi confirmado pelo barbeiro.`
+    message: `Seu agendamento para ${appointment.date} às ${appointment.start_time} foi confirmado pelo barbeiro.`
   });
   
-  // Enviar SMS (simulado)
   await sendSMS({
     phone: client.phone,
-    message: `Seu agendamento para ${appointment.date} às ${appointment.startTime} foi confirmado pelo barbeiro.`
+    message: `Seu agendamento para ${appointment.date} às ${appointment.start_time} foi confirmado pelo barbeiro.`
   });
   
-  // Registrar notificação no sistema
   await Notification.create({
-    recipient: appointment.client,
+    recipient_id: appointment.client_id,
     type: 'appointment_confirmation',
     title: 'Agendamento Confirmado pelo Barbeiro',
-    message: `Seu agendamento para ${appointment.date} às ${appointment.startTime} foi confirmado pelo barbeiro.`,
-    relatedTo: appointment._id,
-    onModel: 'Appointment',
+    message: `Seu agendamento para ${appointment.date} às ${appointment.start_time} foi confirmado pelo barbeiro.`,
+    related_to: appointment.id,
+    on_model: 'Appointment',
     channel: 'sms'
   });
   
   res.status(200).json({
     success: true,
-    data: appointment
+    data: updatedAppointment
   });
 });
 
@@ -396,66 +333,59 @@ exports.cancelAppointment = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Agendamento não encontrado com id ${req.params.id}`, 404));
   }
   
-  // Verificar propriedade para clientes
   if (
     req.user.role === 'client' && 
-    appointment.client.toString() !== req.user.id
+    appointment.client_id.toString() !== req.user.id
   ) {
     return next(new ErrorResponse('Não autorizado a cancelar este agendamento', 401));
   }
   
-  appointment.status = 'cancelado';
-  await appointment.save();
+  const updatedAppointment = await Appointment.update(req.params.id, { status: 'cancelado' });
   
-  // Determinar quem cancela
   const cancelledBy = req.user.role === 'client' ? 'cliente' : 'barbeiro';
   
-  // Enviar notificação apropriada
   if (req.user.role !== 'client') {
-    // Barbeiro ou admin cancelou, notificar cliente
-    const client = await User.findById(appointment.client);
+    const client = await User.findById(appointment.client_id);
     
     await sendEmail({
       email: client.email,
       subject: 'Agendamento Cancelado',
-      message: `Seu agendamento para ${appointment.date} às ${appointment.startTime} foi cancelado pelo ${cancelledBy}.`
+      message: `Seu agendamento para ${appointment.date} às ${appointment.start_time} foi cancelado pelo ${cancelledBy}.`
     });
     
-    // Registrar notificação no sistema
     await Notification.create({
-      recipient: appointment.client,
+      recipient_id: appointment.client_id,
       type: 'appointment_cancelation',
       title: 'Agendamento Cancelado',
-      message: `Seu agendamento para ${appointment.date} às ${appointment.startTime} foi cancelado pelo ${cancelledBy}.`,
-      relatedTo: appointment._id,
-      onModel: 'Appointment',
+      message: `Seu agendamento para ${appointment.date} às ${appointment.start_time} foi cancelado pelo ${cancelledBy}.`,
+      related_to: appointment.id,
+      on_model: 'Appointment',
       channel: 'email'
     });
   } else {
-    // Cliente cancelou, notificar barbeiro
-    const barber = await Barber.findById(appointment.barber).populate('user');
+    const barber = await Barber.findById(appointment.barber_id);
+    const barberUser = await User.findById(barber.user_id);
     
     await sendEmail({
-      email: barber.user.email,
+      email: barberUser.email,
       subject: 'Agendamento Cancelado',
-      message: `O agendamento para ${appointment.date} às ${appointment.startTime} foi cancelado pelo cliente.`
+      message: `O agendamento para ${appointment.date} às ${appointment.start_time} foi cancelado pelo cliente.`
     });
     
-    // Registrar notificação no sistema
     await Notification.create({
-      recipient: barber.user._id,
+      recipient_id: barber.user_id,
       type: 'appointment_cancelation',
       title: 'Agendamento Cancelado',
-      message: `O agendamento para ${appointment.date} às ${appointment.startTime} foi cancelado pelo cliente.`,
-      relatedTo: appointment._id,
-      onModel: 'Appointment',
+      message: `O agendamento para ${appointment.date} às ${appointment.start_time} foi cancelado pelo cliente.`,
+      related_to: appointment.id,
+      on_model: 'Appointment',
       channel: 'email'
     });
   }
   
   res.status(200).json({
     success: true,
-    data: appointment
+    data: updatedAppointment
   });
 });
 
@@ -469,35 +399,33 @@ exports.completeAppointment = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Agendamento não encontrado com id ${req.params.id}`, 404));
   }
   
-  appointment.status = 'concluído';
-  appointment.paymentStatus = req.body.paymentStatus || 'pago';
-  appointment.paymentMethod = req.body.paymentMethod || appointment.paymentMethod;
+  const updatedAppointment = await Appointment.update(req.params.id, {
+    status: 'concluído',
+    payment_status: req.body.payment_status || 'pago',
+    payment_method: req.body.payment_method || appointment.payment_method
+  });
   
-  await appointment.save();
-  
-  // Enviar notificação por email para o cliente
-  const client = await User.findById(appointment.client);
+  const client = await User.findById(appointment.client_id);
   
   await sendEmail({
     email: client.email,
     subject: 'Agendamento Concluído',
-    message: `Seu agendamento para ${appointment.date} às ${appointment.startTime} foi concluído. Obrigado pela preferência!`
+    message: `Seu agendamento para ${appointment.date} às ${appointment.start_time} foi concluído. Obrigado pela preferência!`
   });
   
-  // Registrar notificação no sistema
   await Notification.create({
-    recipient: appointment.client,
+    recipient_id: appointment.client_id,
     type: 'review_request',
     title: 'Como foi seu atendimento?',
     message: `Seu agendamento foi concluído. Que tal avaliar o serviço que você recebeu?`,
-    relatedTo: appointment._id,
-    onModel: 'Appointment',
+    related_to: appointment.id,
+    on_model: 'Appointment',
     channel: 'email'
   });
   
   res.status(200).json({
     success: true,
-    data: appointment
+    data: updatedAppointment
   });
 });
 
@@ -517,54 +445,42 @@ exports.rateAppointment = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`Agendamento não encontrado com id ${req.params.id}`, 404));
   }
   
-  // Verificar se o cliente é o dono do agendamento
-  if (appointment.client.toString() !== req.user.id) {
+  if (appointment.client_id.toString() !== req.user.id) {
     return next(new ErrorResponse('Não autorizado a avaliar este agendamento', 401));
   }
   
-  // Verificar se o agendamento foi concluído
   if (appointment.status !== 'concluído') {
     return next(new ErrorResponse('Apenas agendamentos concluídos podem ser avaliados', 400));
   }
   
-  // Adicionar avaliação ao agendamento
-  appointment.rating = {
-    score,
-    comment,
-    createdAt: Date.now()
-  };
-  
-  await appointment.save();
-  
-  // Atualizar a média de avaliações do barbeiro
-  const barber = await Barber.findById(appointment.barber);
-  
-  // Buscar todos os agendamentos concluídos deste barbeiro que tenham avaliação
-  const ratedAppointments = await Appointment.find({
-    barber: barber._id,
-    status: 'concluído',
-    'rating.score': { $exists: true }
+  const updatedAppointment = await Appointment.update(req.params.id, {
+    rating: {
+      score,
+      comment,
+      created_at: new Date()
+    }
   });
   
-  // Calcular a média
+  const barber = await Barber.findById(appointment.barber_id);
+  
+  const { data: ratedAppointments, error } = await supabase
+    .from('appointments')
+    .select('rating')
+    .eq('barber_id', barber.id)
+    .eq('status', 'concluído')
+    .not('rating', 'is', null);
+
+  if (error) {
+    return next(new ErrorResponse(error.message, 500));
+  }
+
   const totalRating = ratedAppointments.reduce((sum, app) => sum + app.rating.score, 0);
   const averageRating = totalRating / ratedAppointments.length;
   
-  // Atualizar a avaliação do barbeiro
-  barber.rating = parseFloat(averageRating.toFixed(1));
-  
-  // Adicionar avaliação à lista de reviews do barbeiro
-  barber.reviews.push({
-    user: req.user.id,
-    text: comment,
-    rating: score,
-    createdAt: Date.now()
-  });
-  
-  await barber.save();
+  await Barber.update(barber.id, { rating: parseFloat(averageRating.toFixed(1)) });
   
   res.status(200).json({
     success: true,
-    data: appointment
+    data: updatedAppointment
   });
 });
